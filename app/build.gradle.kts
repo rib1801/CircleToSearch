@@ -57,8 +57,10 @@ android {
         applicationId = "com.rib1801.circletosearch"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.5"
+        // versionCode derivado do run do Actions (+1000) para o Obtainium sempre
+        // ver um numero maior; build local cai no 1007.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(1000)) ?: 1007
+        versionName = "0.5-rib" + (System.getenv("GITHUB_RUN_NUMBER") ?: "")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
