@@ -54,7 +54,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.akslabs.circletosearch"
+        applicationId = "com.rib1801.circletosearch"
         minSdk = 29
         targetSdk = 36
         versionCode = 7
