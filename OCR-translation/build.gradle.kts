@@ -50,20 +50,40 @@ android {
 val bindingsRootDir = file("src/main/bindings")
 val bindingsBindgenRootDir = file("bindings-bindgen")
 val jniLibsRootDir = file("src/main/jniLibs")
-val llvmDllDir =
-    File(
-        System.getenv("LOCALAPPDATA")
-            ?: (System.getenv("USERPROFILE") + "/AppData/Local"),
-        "llvm-dll",
-    ).absolutePath
-val ndkDir =
+val isWindowsHost = org.gradle.internal.os.OperatingSystem.current().isWindows
+val ndkHostTag =
+    when {
+        isWindowsHost -> "windows-x86_64"
+        org.gradle.internal.os.OperatingSystem.current().isMacOsX -> "darwin-x86_64"
+        else -> "linux-x86_64"
+    }
+
+// -PusePrebuiltBindings=true: skip the native build (cargo ndk) and reuse the
+// libbindings.so already committed under src/main/jniLibs/<abi>/. In that mode
+// nothing NDK/Windows related may be evaluated, so all of it below is lazy.
+val usePrebuiltBindings = project.findProperty("usePrebuiltBindings")?.toString().toBoolean()
+
+// Only used on Windows (LIBCLANG_PATH for the cross build); null elsewhere.
+val llvmDllDir: String? by lazy {
+    if (!isWindowsHost) {
+        null
+    } else {
+        File(
+            System.getenv("LOCALAPPDATA")
+                ?: (System.getenv("USERPROFILE") + "/AppData/Local"),
+            "llvm-dll",
+        ).absolutePath
+    }
+}
+val ndkDir: String by lazy {
     System.getenv("ANDROID_NDK_ROOT")
         ?: System.getenv("ANDROID_NDK_HOME")
         ?: System.getenv("ANDROID_HOME")?.let { "$it/ndk/27.0.12077973" }
         ?: System.getenv("ANDROID_SDK_ROOT")?.let { "$it/ndk/27.0.12077973" }
         ?: (try { android.sdkDirectory.resolve("ndk/27.0.12077973").absolutePath } catch (_: Exception) { null })
         ?: throw GradleException("NDK 27.0.12077973 not found: set ANDROID_HOME or install it via sdkmanager")
-val sdkCmakeBinDir =
+}
+val sdkCmakeBinDir: String? by lazy {
     listOfNotNull(
         System.getenv("ANDROID_HOME"),
         System.getenv("ANDROID_SDK_ROOT"),
@@ -73,31 +93,38 @@ val sdkCmakeBinDir =
         .filterNotNull()
         .map { File(it, "bin").absolutePath }
         .firstOrNull { File(it).exists() }
+}
 val bindingsAndroidApi = 29
 
 fun jniLibAbiDir(abi: String) = File(jniLibsRootDir, abi)
 
 // Short, space-free cargo home + target dir: absolute host paths get baked
 // into ninja object dirs (260-char Windows limit), so both must stay short.
-val shortCargoHome = "C:/cgo"
-val shortCargoTargetDir = "C:/ct"
+// Windows only; on other hosts cargo's defaults are used (null = don't set).
+val shortCargoHome: String? = if (isWindowsHost) "C:/cgo" else null
+val shortCargoTargetDir: String? = if (isWindowsHost) "C:/ct" else null
 
-val ndkLlvmPrebuiltFw = "$ndkDir/toolchains/llvm/prebuilt/windows-x86_64".replace('\\', '/')
-val ndkClangIncludeFw =
-    fileTree("$ndkDir/toolchains/llvm/prebuilt/windows-x86_64") {
+val ndkLlvmPrebuiltFw: String by lazy {
+    "$ndkDir/toolchains/llvm/prebuilt/$ndkHostTag".replace('\\', '/')
+}
+val ndkClangIncludeFw: String by lazy {
+    fileTree("$ndkDir/toolchains/llvm/prebuilt/$ndkHostTag") {
         include("lib/clang/*/include/stddef.h")
     }.files.firstOrNull()?.parent?.replace('\\', '/')
         ?: error("clang include dir not found under $ndkDir")
+}
 // Read by espeak-rs-sys' build script (BINDGEN_EXTRA_CLANG_ARGS_<target>);
 // plain CFLAGS must NOT be set: they leak into cmake configure checks.
-val bindgenExtraArgs =
+val bindgenExtraArgs: String by lazy {
     listOf(
         "--target=aarch64-linux-android29",
         "--sysroot=$ndkLlvmPrebuiltFw/sysroot",
         "-isystem$ndkClangIncludeFw",
         "-isystem${ndkDir.replace('\\', '/')}/sources/cxx-stl/llvm-libc++/include",
     ).joinToString(" ")
-val msysBinDir = "C:/msys64/usr/bin"
+}
+// Windows only (MSYS2 tools on PATH for the cross build).
+val msysBinDir: String? = if (isWindowsHost) "C:/msys64/usr/bin" else null
 
 // NDK clang version differs per NDK release: discover the runtime-builtins
 // archive instead of hardcoding the clang version directory.
@@ -110,12 +137,7 @@ fun clangRtLib(abi: String): String {
             "x86_64" -> "x86_64-android"
             else -> error("Unknown abi $abi")
         }
-    val hostOs =
-        when {
-            org.gradle.internal.os.OperatingSystem.current().isWindows -> "windows-x86_64"
-            org.gradle.internal.os.OperatingSystem.current().isMacOsX -> "darwin-x86_64"
-            else -> "linux-x86_64"
-        }
+    val hostOs = ndkHostTag
     val hits =
         fileTree("$ndkDir/toolchains/llvm/prebuilt/$hostOs") {
             include("lib/clang/*/lib/$hostOs/libclang_rt.builtins-$rtArch.a")
@@ -175,7 +197,7 @@ val abiToCargoTarget =
 val cargoProfileArgs = listOf("--release")
 
 val abiToBindingsTask =
-    abiToCargoTarget.mapValues { (abi, cargoTarget) ->
+    (if (usePrebuiltBindings) emptyMap<String, String>() else abiToCargoTarget).mapValues { (abi, cargoTarget) ->
         val taskSuffix = abiToTaskSuffix.getValue(abi)
         tasks.register("buildBindings$taskSuffix") {
             group = "build"
@@ -197,15 +219,15 @@ val abiToBindingsTask =
                     workingDir = bindingsRootDir
                     environment("ANDROID_NDK_ROOT", ndkDir)
                     environment("ANDROID_NDK_HOME", ndkDir)
-                    environment("LIBCLANG_PATH", llvmDllDir)
-                    environment("CARGO_HOME", shortCargoHome)
-                    environment("CARGO_TARGET_DIR", shortCargoTargetDir)
+                    llvmDllDir?.let { environment("LIBCLANG_PATH", it) }
+                    shortCargoHome?.let { environment("CARGO_HOME", it) }
+                    shortCargoTargetDir?.let { environment("CARGO_TARGET_DIR", it) }
                     environment("BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android", bindgenExtraArgs)
                     environment("BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android", bindgenExtraArgs)
                     val extraPath =
                         listOfNotNull(
                             sdkCmakeBinDir,
-                            msysBinDir.takeIf { File(it).exists() },
+                            msysBinDir?.takeIf { File(it).exists() },
                         ).joinToString(File.pathSeparator)
                     if (extraPath.isNotEmpty()) {
                         environment(
@@ -264,7 +286,7 @@ val buildUniffiBindgen =
         group = "build"
         description = "Build the host uniffi-bindgen binary"
         workingDir = bindingsBindgenRootDir
-        environment("CARGO_HOME", shortCargoHome)
+        shortCargoHome?.let { environment("CARGO_HOME", it) }
         inputs.file(bindingsBindgenRootDir.resolve("Cargo.toml"))
         inputs.dir(bindingsBindgenRootDir.resolve("src"))
         outputs.file(bindgenHostBinary)
@@ -281,7 +303,8 @@ val generateUniffiBindings =
         group = "build"
         description = "Generate Kotlin bindings from the compiled libbindings.so"
         dependsOn(buildUniffiBindgen)
-        dependsOn(abiToBindingsTask.getValue(bindgenSourceAbi))
+        // With -PusePrebuiltBindings=true the .so is the committed one: no native build.
+        abiToBindingsTask[bindgenSourceAbi]?.let { dependsOn(it) }
         workingDir = bindingsRootDir
         inputs.file(bindgenHostBinary)
         inputs.file(bindgenSourceLib)
