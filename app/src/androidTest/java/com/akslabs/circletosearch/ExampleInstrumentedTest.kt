@@ -38,6 +38,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.akslabs.circletosearch", appContext.packageName)
+        assertEquals("com.rib1801.circletosearch", appContext.packageName)
     }
 }
