@@ -69,9 +69,12 @@ jobs:
       - name: Verify APK signature
         run: |
           APK_DIR="app/build/outputs/apk/release"
+          # apksigner nao vem no PATH do runner: esta em build-tools.
+          APKSIGNER="$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+          echo "usando $APKSIGNER"
           for apk in "$APK_DIR"/*.apk; do
             echo "Verifying signature: $apk"
-            apksigner verify --print-certs "$apk"
+            "$APKSIGNER" verify --print-certs "$apk"
           done
 
       - name: Generate SHA-256 checksums
