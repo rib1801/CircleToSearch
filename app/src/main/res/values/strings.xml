@@ -198,6 +198,7 @@
     <string name="qr_action_maps">Maps</string>
     <string name="qr_action_search">Search</string>
     <string name="qr_action_translate">Translate</string>
+    <string name="qr_action_search_duckduckgo">Search on DuckDuckGo</string>
 
     <!-- Bottom Sheets -->
     <string name="title_more_apps">More Apps by AKS-Labs</string>

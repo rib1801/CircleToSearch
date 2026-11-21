@@ -1308,25 +1308,20 @@ fun CircleToSearchScreen(
                         }
                         
                         isLoading = false
-                        
-                        // Then, load others sequentially
-                        scope.launch {
-                            searchEngines.forEach { engine ->
-                                if (engine != selectedEngine) {
-                                    delay(300) // Reduced from 800ms for faster loading
-                                    if (!initializedEngines.contains(engine)) {
-                                        initializedEngines.add(engine)
-                                    }
-                                }
-                            }
-                        }
+                        // Other engines are NOT preloaded: they initialize on tab tap
+                        // (see LaunchedEffect(selectedEngine) below).
                     }
                 }
-                
-                // Update searchUrl when engine changes
+
+                // Update searchUrl when engine changes, and lazily initialize the tapped
+                // engine's WebView (once initialized it stays alive, so returning to a tab
+                // never reloads it).
                 LaunchedEffect(selectedEngine, preloadedUrls) {
                     if (preloadedUrls.containsKey(selectedEngine)) {
                         searchUrl = preloadedUrls[selectedEngine]
+                        if (!initializedEngines.contains(selectedEngine)) {
+                            initializedEngines.add(selectedEngine)
+                        }
                     }
                 }
 

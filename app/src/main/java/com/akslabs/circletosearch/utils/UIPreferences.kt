@@ -34,6 +34,7 @@ class UIPreferences(context: Context) {
         private const val KEY_SHOW_GRADIENT_BORDER = "show_gradient_border"
         private const val KEY_SHOW_FRIENDLY_MESSAGES = "show_friendly_messages"
         private const val KEY_SEARCH_ENGINE_ORDER = "search_engine_order"
+        private const val LEGACY_DEFAULT_ENGINE_ORDER = "Google,Bing,Yandex,TinEye"
         private const val KEY_USE_GOOGLE_LENS_ONLY = "use_google_lens_only"
     }
 
@@ -92,7 +93,9 @@ class UIPreferences(context: Context) {
     }
 
     fun getSearchEngineOrder(): String? {
-        return prefs.getString(KEY_SEARCH_ENGINE_ORDER, null)
+        val saved = prefs.getString(KEY_SEARCH_ENGINE_ORDER, null)
+        // The old default order is treated as "not configured" so existing installs pick up the new default.
+        return if (saved == LEGACY_DEFAULT_ENGINE_ORDER) null else saved
     }
 
     fun setSearchEngineOrder(order: String) {

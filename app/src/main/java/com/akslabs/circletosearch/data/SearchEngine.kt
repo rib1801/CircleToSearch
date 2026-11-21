@@ -30,7 +30,7 @@ sealed class SearchEngine(@StringRes val displayNameRes: Int) {
     object TinEye : SearchEngine(R.string.engine_tineye)
 
     companion object {
-        fun values(): List<SearchEngine> = listOf(Google, Bing, Yandex, TinEye)
+        fun values(): List<SearchEngine> = listOf(Yandex, TinEye, Google, Bing)
     }
 
     fun getDisplayName(context: Context): String = context.getString(displayNameRes)

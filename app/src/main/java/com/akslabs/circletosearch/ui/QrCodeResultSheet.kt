@@ -399,6 +399,7 @@ private fun PlainTextResult(context: Context, result: QrResult.PlainText) {
     val qrActionSearch = stringResource(R.string.qr_action_search)
     val qrActionCopy = stringResource(R.string.qr_action_copy)
     val qrActionTranslate = stringResource(R.string.qr_action_translate)
+    val qrActionDuckDuckGo = stringResource(R.string.qr_action_search_duckduckgo)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("📝", fontSize = 42.sp)
         Spacer(Modifier.height(4.dp))
@@ -414,6 +415,10 @@ private fun PlainTextResult(context: Context, result: QrResult.PlainText) {
             PrimaryAction(qrActionSearch) { openUrl(context, "https://www.google.com/search?q=${Uri.encode(result.text)}", toastCannotOpenLink) }
             SecondaryAction(qrActionCopy) { copyToClipboard(context, "Text", result.text, toastCopied) }
             SecondaryAction(qrActionTranslate) { openUrl(context, "https://translate.google.com/?text=${Uri.encode(result.text)}", toastCannotOpenLink) }
+        }
+        Spacer(Modifier.height(8.dp))
+        ActionRow {
+            SecondaryAction(qrActionDuckDuckGo) { openUrl(context, "https://duckduckgo.com/?q=${Uri.encode(result.text)}", toastCannotOpenLink) }
         }
     }
 }
