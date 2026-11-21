@@ -60,7 +60,10 @@ android {
         // versionCode derivado do run do Actions (+1000) para o Obtainium sempre
         // ver um numero maior; build local cai no 1007.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.plus(1000)) ?: 1007
-        versionName = "0.5-rib" + (System.getenv("GITHUB_RUN_NUMBER") ?: "")
+        // versionName em semver de verdade (0.5.<run>): "0.5-rib<N>" era um
+        // pre-release semver, que ordena ABAIXO de 0.5 e confunde ferramenta de
+        // update (Obtainium) e qualquer comparação de versão.
+        versionName = "0.5." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
