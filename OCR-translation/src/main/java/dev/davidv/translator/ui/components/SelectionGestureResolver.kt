@@ -108,6 +108,8 @@ const val LASSO_THIN_DP = 3f // drop stroke points closer than this to the previ
 const val HANDLE_GRAB_DP = 28f // radius to grab a selection handle
 const val LASSO_MIN_COVERAGE = 0.30f // fraction of a word's box inside the polygon
 const val LASSO_MIN_CORNERS = 2 // corners inside (alternative to centre inside)
+const val SAME_LINE_MIN_OVERLAP = 0.30f // sweep: min overlap / min(heights) to count as same line
+const val TAP_HIT_TOLERANCE_DP = 4f // tap: slack around the hit word's box
 
 private fun pointInPolygon(
   x: Float,
@@ -135,6 +137,44 @@ private fun OrientedRect.at(
   val lx = u * width
   val ly = v * height
   return Offset(cx + lx * c - ly * s, cy + lx * s + ly * c)
+}
+
+/**
+ * True when [b] is on the same text line as [a]: along the normal of [a]'s text direction the
+ * two boxes' extents overlap by more than [SAME_LINE_MIN_OVERLAP] of the SMALLER height.
+ * Using the smaller height tolerates a big title next to a small subtitle (different box
+ * heights) while a word on the next line, whose box only touches/grazes this one, fails.
+ */
+internal fun sameLine(
+  a: OrientedRect,
+  b: OrientedRect,
+): Boolean {
+  val nx = -sin(a.angleRadians)
+  val ny = cos(a.angleRadians)
+  val d = b.angleRadians - a.angleRadians
+  val aHalf = a.height / 2f
+  // Half extent of b along a's normal (b may be slightly rotated relative to a).
+  val bHalf = (kotlin.math.abs(b.width * sin(d)) + kotlin.math.abs(b.height * cos(d))) / 2f
+  val aC = a.cx * nx + a.cy * ny
+  val bC = b.cx * nx + b.cy * ny
+  val overlap = min(aC + aHalf, bC + bHalf) - max(aC - aHalf, bC - bHalf)
+  val minH = min(a.height, 2f * bHalf)
+  return minH > 0f && overlap > SAME_LINE_MIN_OVERLAP * minH
+}
+
+/** True when (x, y) lies in [r] grown by [tol] on every side (oriented-box aware). */
+internal fun OrientedRect.containsWithTolerance(
+  x: Float,
+  y: Float,
+  tol: Float,
+): Boolean {
+  val dx = x - cx
+  val dy = y - cy
+  val c = cos(angleRadians)
+  val s = sin(angleRadians)
+  val lx = dx * c + dy * s
+  val ly = -dx * s + dy * c
+  return kotlin.math.abs(lx) <= width / 2f + tol && kotlin.math.abs(ly) <= height / 2f + tol
 }
 
 /**
@@ -208,6 +248,7 @@ fun Modifier.selectionGestureResolver(
       val thin = LASSO_THIN_DP.dp.toPx()
       val minLasso = LASSO_MIN_DP.dp.toPx()
       val handleRadius = HANDLE_GRAB_DP.dp.toPx()
+      val tapTol = TAP_HIT_TOLERANCE_DP.dp.toPx()
 
       awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
@@ -250,7 +291,13 @@ fun Modifier.selectionGestureResolver(
         val onCrop = cropHandleAt.value(down.position)
         val startWord =
           if (st != null && t != null && !onCrop) {
-            selectionWordAt(st.words, t.unmapX(down.position.x), t.unmapY(down.position.y))?.toInt()
+            val ix = t.unmapX(down.position.x)
+            val iy = t.unmapY(down.position.y)
+            // Guard: the hit-test may return a neighbouring word; only trust it when its box
+            // really contains the touch point (small tolerance), else treat as "no word".
+            selectionWordAt(st.words, ix, iy)?.toInt()?.takeIf {
+              st.words[it].bounds.containsWithTolerance(ix, iy, tapTol / t.scale)
+            }
           } else {
             null
           }
@@ -293,13 +340,18 @@ fun Modifier.selectionGestureResolver(
         if (st != null && t != null && startWord != null) {
           // 4a) Drag from a word: sweep a range of words.
           val axis = selectionWordAxis(st.words, startWord.toUInt())
+          val startBounds = st.words[startWord].bounds
           st.select(startWord, startWord)
           st.dragging = true
           var ch = lastChange
           while (true) {
             ch.consume()
+            // Same-line guard: a candidate from another line (e.g. under a smaller font) is
+            // dropped and the previous selection kept.
             selectionNearestWord(st.words, t.unmapX(ch.position.x), t.unmapY(ch.position.y), axis)
-              ?.let { st.select(startWord, it.toInt()) }
+              ?.toInt()
+              ?.takeIf { sameLine(startBounds, st.words[it].bounds) }
+              ?.let { st.select(startWord, it) }
             st.magnifierAt = ch.position
             val ev = awaitPointerEvent()
             ch = ev.changes.firstOrNull { it.id == down.id } ?: break
