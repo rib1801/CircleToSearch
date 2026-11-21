@@ -143,6 +143,39 @@ class OverlayActivity : ComponentActivity() {
         if (isFinishing) {
              com.akslabs.circletosearch.data.BitmapRepository.clear()
              com.akslabs.circletosearch.utils.StorageUtils.clearAppCache(this)
+            wipeWebViewStorage(this)
+        }
+    }
+
+    /**
+     * End-of-session wipe of what the search WebViews leave behind: HTTP cache,
+     * WebStorage (localStorage/IndexedDB/WebSQL), form data and cookies. Live
+     * WebViews are cleared (history/form/cache) and destroyed by the screen's
+     * own teardown before this runs.
+     */
+    private fun wipeWebViewStorage(context: android.content.Context) {
+        try {
+            android.webkit.WebStorage.getInstance().deleteAllData()
+        } catch (e: Exception) {
+            android.util.Log.w("CircleToSearch", "WebStorage wipe failed", e)
+        }
+        try {
+            val cm = android.webkit.CookieManager.getInstance()
+            cm.removeAllCookies { cm.flush() }
+            cm.flush()
+        } catch (e: Exception) {
+            android.util.Log.w("CircleToSearch", "cookie wipe failed", e)
+        }
+        try {
+            // Cache/form data are app-wide in the WebView profile; a throwaway
+            // instance reaches them even if the live WebViews are already gone.
+            val wv = android.webkit.WebView(context.applicationContext)
+            wv.clearCache(true)
+            wv.clearFormData()
+            wv.clearHistory()
+            wv.destroy()
+        } catch (e: Exception) {
+            android.util.Log.w("CircleToSearch", "WebView cache wipe failed", e)
         }
     }
 }

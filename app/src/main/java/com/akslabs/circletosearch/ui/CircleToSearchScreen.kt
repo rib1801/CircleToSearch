@@ -682,6 +682,8 @@ fun CircleToSearchScreen(
                 (it.parent as? ViewGroup)?.removeView(it)
                 it.stopLoading()
                 it.clearHistory()
+                it.clearFormData()
+                it.clearCache(true)
                 it.loadUrl("about:blank")
                 it.destroy()
             } catch (e: Exception) {
@@ -892,11 +894,14 @@ fun CircleToSearchScreen(
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                allowFileAccess = true
-                allowContentAccess = true
-                allowFileAccessFromFileURLs = true
-                allowUniversalAccessFromFileURLs = true
-                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                allowFileAccess = false
+                allowContentAccess = false
+                allowFileAccessFromFileURLs = false
+                allowUniversalAccessFromFileURLs = false
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                @Suppress("DEPRECATION")
+                saveFormData = false
+                setGeolocationEnabled(false)
                 
                 // Performance & UI
                 setRenderPriority(WebSettings.RenderPriority.HIGH)
@@ -927,8 +932,8 @@ fun CircleToSearchScreen(
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
 
-            // Enable Third-Party Cookies
-            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            // Privacy: no third-party cookies in the search WebViews
+            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
             // Instrument fetch/XHR so the Lens results RPC (and its status) is
             // visible even when it fails silently. Injected at page start AND
@@ -1277,6 +1282,8 @@ fun CircleToSearchScreen(
                             (it.parent as? ViewGroup)?.removeView(it)
                             it.stopLoading()
                             it.clearHistory()
+                            it.clearFormData()
+                            it.clearCache(true)
                             it.loadUrl("about:blank")
                             it.destroy()
                         } catch (e: Exception) {
@@ -1418,6 +1425,7 @@ fun CircleToSearchScreen(
                             webViews.values.forEach { 
                                 it.stopLoading()
                                 it.clearHistory()
+                                it.clearFormData()
                                 it.clearCache(true)
                                 it.loadUrl("about:blank")
                                 it.destroy() 
