@@ -660,6 +660,33 @@ fun CircleToSearchScreen(
     var selectionRect by remember { mutableStateOf<Rect?>(null) }
     val selectionAnim = remember { androidx.compose.animation.core.Animatable(0f) }
 
+    // Single reset point for a search session: bitmap crop, hosted URL, per-engine URLs,
+    // lazy-init set, current searchUrl and every cached WebView (destroyed, not just
+    // cleared). Used on new capture, when leaving results and on "Open in browser" so a
+    // reused OverlayActivity (singleInstance + onNewIntent) never resumes a stale search.
+    fun resetSearchSession() {
+        selectedBitmap = null
+        hostedImageUrl = null
+        refreshingEngine = null
+        isLoading = false
+        searchUrl = null
+        preloadedUrls.clear()
+        initializedEngines.clear()
+        val stale = webViews.values.toList()
+        webViews.clear()
+        stale.forEach {
+            try {
+                (it.parent as? ViewGroup)?.removeView(it)
+                it.stopLoading()
+                it.clearHistory()
+                it.loadUrl("about:blank")
+                it.destroy()
+            } catch (e: Exception) {
+                android.util.Log.w("CircleToSearch", "WebView teardown failed", e)
+            }
+        }
+    }
+
     // Translator overlay mode: Circle to Search chrome hidden, the frozen screenshot
     // stays visible as the backdrop under the module's scan/result overlays.
     var isTranslatorMode by remember { mutableStateOf(false) }
@@ -783,9 +810,11 @@ fun CircleToSearchScreen(
 
     // Lifecycle reset: When screenshot changes, reset selection and modes
     LaunchedEffect(screenshot) {
+        // Runs for null too: OverlayActivity.onNewIntent nulls the capture first, and a
+        // reused activity must drop the previous session even if no new bitmap follows.
+        resetSearchSession()
         if (screenshot != null) {
             selectionRect = null
-            selectedBitmap = null
             isSearching = false
             currentPathPoints.clear()
             selectionAnim.snapTo(0f)
@@ -1121,6 +1150,7 @@ fun CircleToSearchScreen(
         } else if (scaffoldState.bottomSheetState.currentValue == androidx.compose.material3.SheetValue.PartiallyExpanded) {
              scope.launch { scaffoldState.bottomSheetState.hide() }
         } else {
+            resetSearchSession()
             onClose()
         }
     }
@@ -1167,6 +1197,18 @@ fun CircleToSearchScreen(
                         .height(800.dp)
                         .background(pageBackgroundColor, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 ) {
+                // Engine tab strip palette: warm beige in light, warm dark in dark.
+                // (Previously the strip/pills used the page's own background = fixed white.)
+                val tabsDark = isSystemInDarkTheme()
+                val tabBarBg = if (tabsDark) Color(0xFF1E1B18) else Color(0xFFEDE4D3)
+                val tabContent = if (tabsDark) Color(0xFFEDE4D3) else Color(0xFF3A332A)
+                val tabSelectedBg = if (tabsDark) Color(0xFF2E2925) else Color(0xFFDCD0B8)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(tabBarBg, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                ) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Tabs - Polished UI
@@ -1174,7 +1216,7 @@ fun CircleToSearchScreen(
                     selectedTabIndex = searchEngines.indexOf(selectedEngine),
                     edgePadding = 16.dp,
                     containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    contentColor = tabContent,
                     divider = {},
                     indicator = {}
                 ) {
@@ -1200,39 +1242,45 @@ fun CircleToSearchScreen(
                                     ),
                                     modifier = Modifier
                                         .background(
-                                            pageBackgroundColor,
+                                            if (selected) tabSelectedBg else Color.Transparent,
                                             RoundedCornerShape(16.dp)
                                         )
                                         .border(
                                              width = 1.dp,
-                                             color = if(selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
+                                             color = if(selected) tabContent.copy(alpha = 0.35f) else Color.Transparent,
                                              shape = RoundedCornerShape(16.dp)
                                         )
                                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = tabContent
                                 )
                             }
                         )
                     }
                 }
+                }
 
                 // Reset everything when bitmap changes (new area selected)
                 LaunchedEffect(selectedBitmap) {
+                    // resetSearchSession() also nulls selectedBitmap; only re-run the
+                    // cleanup (not the assignment) here to avoid clobbering a new crop.
                     hostedImageUrl = null
                     refreshingEngine = null
                     searchUrl = null
                     preloadedUrls.clear()
-                    initializedEngines.clear() // Reset smart loading
-                    // Do NOT destroy webviews here to keep them cached if possible? 
-                    // PROBABLY safer to destroy to avoid stale state from previous searches.
-                    webViews.values.forEach { 
-                        it.stopLoading()
-                        it.clearHistory()
-                        it.clearCache(true)
-                        it.loadUrl("about:blank")
-                        it.destroy() 
-                    }
+                    initializedEngines.clear()
+                    val stale = webViews.values.toList()
                     webViews.clear()
+                    stale.forEach {
+                        try {
+                            (it.parent as? ViewGroup)?.removeView(it)
+                            it.stopLoading()
+                            it.clearHistory()
+                            it.loadUrl("about:blank")
+                            it.destroy()
+                        } catch (e: Exception) {
+                            android.util.Log.w("CircleToSearch", "WebView teardown failed", e)
+                        }
+                    }
                 }
 
                 LaunchedEffect(selectedBitmap, hostedImageUrl) {
@@ -1858,6 +1906,10 @@ fun CircleToSearchScreen(
                                                 android.net.Uri.parse(currentUrl)
                                             )
                                             context.startActivity(intent)
+                                            // End the search session: the browser took over, so the
+                                            // next launch must start from a clean capture.
+                                            resetSearchSession()
+                                            onClose()
                                         } catch (e: Exception) {
                                             android.util.Log.e(
                                                 "CircleToSearch",
