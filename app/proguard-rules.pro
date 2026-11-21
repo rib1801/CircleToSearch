@@ -44,3 +44,18 @@
 # Ignore missing okhttp3 classes since OkHttp is not included as a dependency.
 -dontwarn okhttp3.**
 
+
+# JNA (usada pelo OCR-translation via uniffi): o R8 renomeia o campo interno
+# `peer` de com.sun.jna.Pointer, e o codigo NATIVO do JNA procura esse campo
+# pelo nome via JNI. Se for renomeado:
+#   UnsatisfiedLinkError: Can't obtain peer field ID for class com.sun.jna.Pointer
+# e o app morre em TranslatorApplication.onCreate (crash na abertura).
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { public *; }
+-keep class * implements com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**
+-dontwarn java.awt.**
+
+# Bindings gerados pelo uniffi e o modulo de traducao: resolvidos por reflexao.
+-keep class uniffi.** { *; }
+-keep class dev.davidv.** { *; }
