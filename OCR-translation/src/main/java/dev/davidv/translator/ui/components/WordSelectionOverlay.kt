@@ -22,6 +22,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.view.ActionMode
 import android.view.Menu
@@ -58,6 +59,7 @@ import uniffi.bindings.selectionResolve
 import uniffi.bindings.selectionWordAt
 import uniffi.bindings.selectionWordAxis
 import uniffi.translator_core.PositionedWord
+import java.net.URLEncoder
 import kotlin.math.max
 import kotlin.math.min
 
@@ -91,9 +93,10 @@ private fun copyToClipboard(
 private const val MENU_COPY = 1
 private const val MENU_SHARE = 2
 private const val MENU_SEARCH = 3
+private const val MENU_SEARCH_DDG = 4
 
 /**
- * A floating text-selection action bar (Copy / Share / Web search) over the image, mirroring the
+ * A floating text-selection action bar (Copy / Share / Search on DuckDuckGo / Web search) over the image, mirroring the
  * system text toolbar. `textProvider`/`rectProvider` are read live so the bar follows the
  * selection. Returns a callback; the caller drives `startActionMode`.
  */
@@ -109,7 +112,8 @@ private class SelectionActionModeCallback(
   ): Boolean {
     menu.add(0, MENU_COPY, 0, android.R.string.copy)
     menu.add(0, MENU_SHARE, 1, "Share")
-    menu.add(0, MENU_SEARCH, 2, "Web search")
+    menu.add(0, MENU_SEARCH_DDG, 2, "Search on DuckDuckGo")
+    menu.add(0, MENU_SEARCH, 3, "Web search")
     return true
   }
 
@@ -132,6 +136,16 @@ private class SelectionActionModeCallback(
             putExtra(Intent.EXTRA_TEXT, text)
           }
         context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      }
+      MENU_SEARCH_DDG -> {
+        runCatching {
+          val query = URLEncoder.encode(text, "UTF-8")
+          val intent =
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://duckduckgo.com/?q=$query")).apply {
+              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+          context.startActivity(intent)
+        }
       }
       MENU_SEARCH -> {
         val intent =

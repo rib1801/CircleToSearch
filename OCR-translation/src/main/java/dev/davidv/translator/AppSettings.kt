@@ -38,7 +38,7 @@ enum class HttpServerBindMode(
 }
 
 data class AppSettings(
-  val defaultTargetLanguageCode: String = "en",
+  val defaultTargetLanguageCode: String = "pt",
   val defaultSourceLanguageCode: String? = null,
   val catalogIndexUrl: String = Constants.DEFAULT_CATALOG_INDEX_URL,
   val backgroundMode: BackgroundMode = BackgroundMode.AUTO_DETECT,
