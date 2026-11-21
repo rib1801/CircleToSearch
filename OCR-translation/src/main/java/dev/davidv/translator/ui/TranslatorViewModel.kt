@@ -109,6 +109,9 @@ class TranslatorViewModel(
   private val _targets = MutableStateFlow<TargetTabs?>(null)
   val targets: StateFlow<TargetTabs?> = _targets.asStateFlow()
 
+  // True while the UI shows English only because the saved target's pack is missing (nothing is persisted).
+  private var targetFallbackActive = false
+
   // Active target, derived from the tab zipper. Everything that just needs "the
   // current target" reads this; the tab list is only for the multi-target header.
   val to: StateFlow<Language?> =
@@ -291,9 +294,16 @@ class TranslatorViewModel(
         val catalog = languageStateManager.catalog.value ?: return@collect
         val curSettings = settingsManager.settings.value
         val targetLang = catalog.languageByCode(curSettings.defaultTargetLanguageCode)
-        if (targetLang != null && languageState.availabilityFor(targetLang)?.translatorFiles != true) {
-          _targets.value = TargetTabs.of(catalog.english)
-          settingsManager.updateSettings(curSettings.copy(defaultTargetLanguageCode = "en"))
+        if (targetLang != null) {
+          val targetInstalled = languageState.availabilityFor(targetLang)?.translatorFiles == true
+          if (!targetInstalled) {
+            // Visual fallback only: the user's choice stays persisted so it applies once the pack is downloaded.
+            _targets.value = TargetTabs.of(catalog.english)
+            targetFallbackActive = true
+          } else if (targetFallbackActive) {
+            targetFallbackActive = false
+            _targets.value = TargetTabs.of(targetLang)
+          }
         }
         val sourceLang = curSettings.defaultSourceLanguageCode?.let { catalog.languageByCode(it) }
         if (sourceLang != null && languageState.availabilityFor(sourceLang)?.translatorFiles != true) {
@@ -429,6 +439,7 @@ class TranslatorViewModel(
       }
 
       is TranslatorMessage.ToLang -> {
+        targetFallbackActive = false
         _targets.update { it?.select(message.language) }
         _output.value = null
         triggerTranslation()
