@@ -661,6 +661,9 @@ fun CircleToSearchScreen(
     var selectedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isSearching by remember { mutableStateOf(false) }
     var selectionRect by remember { mutableStateOf<Rect?>(null) }
+    // A lasso closed on an image: the frame is shown with draggable handles but NO crop /
+    // upload / search happens until the user taps "Search" (confirmCrop) or "Cancel".
+    var cropPending by remember { mutableStateOf(false) }
     val selectionAnim = remember { androidx.compose.animation.core.Animatable(0f) }
 
     // Single reset point for a search session: bitmap crop, hosted URL, per-engine URLs,
@@ -669,6 +672,7 @@ fun CircleToSearchScreen(
     // reused OverlayActivity (singleInstance + onNewIntent) never resumes a stale search.
     fun resetSearchSession() {
         selectedBitmap = null
+        cropPending = false
         hostedImageUrl = null
         refreshingEngine = null
         isLoading = false
@@ -720,11 +724,21 @@ fun CircleToSearchScreen(
         val rect = selectionRect ?: return null
         if (selectionAnim.value != 1f) return null
         val handleSize = 64f // px for hit testing
+        val edgeSize = 40f // px for edge hit testing
         return when {
             (offset - Offset(rect.left.toFloat(), rect.top.toFloat())).getDistance() < handleSize -> "tl"
             (offset - Offset(rect.right.toFloat(), rect.top.toFloat())).getDistance() < handleSize -> "tr"
             (offset - Offset(rect.left.toFloat(), rect.bottom.toFloat())).getDistance() < handleSize -> "bl"
             (offset - Offset(rect.right.toFloat(), rect.bottom.toFloat())).getDistance() < handleSize -> "br"
+            // Edges (drag one side only): near the side line and within its span.
+            offset.y in rect.top.toFloat()..rect.bottom.toFloat() &&
+                kotlin.math.abs(offset.x - rect.left) < edgeSize -> "l"
+            offset.y in rect.top.toFloat()..rect.bottom.toFloat() &&
+                kotlin.math.abs(offset.x - rect.right) < edgeSize -> "r"
+            offset.x in rect.left.toFloat()..rect.right.toFloat() &&
+                kotlin.math.abs(offset.y - rect.top) < edgeSize -> "t"
+            offset.x in rect.left.toFloat()..rect.right.toFloat() &&
+                kotlin.math.abs(offset.y - rect.bottom) < edgeSize -> "b"
             else -> null
         }
     }
@@ -739,6 +753,7 @@ fun CircleToSearchScreen(
         currentPathPoints.clear()
         currentPathPoints.add(offset)
         selectionRect = null
+        cropPending = false
         scope.launch { selectionAnim.snapTo(0f) }
         // The resolver already cleared any text selection when the lasso started.
     }
@@ -753,6 +768,10 @@ fun CircleToSearchScreen(
                 "tr" -> { newRect.right = pos.x.toInt(); newRect.top = pos.y.toInt() }
                 "bl" -> { newRect.left = pos.x.toInt(); newRect.bottom = pos.y.toInt() }
                 "br" -> { newRect.right = pos.x.toInt(); newRect.bottom = pos.y.toInt() }
+                "l" -> newRect.left = pos.x.toInt()
+                "r" -> newRect.right = pos.x.toInt()
+                "t" -> newRect.top = pos.y.toInt()
+                "b" -> newRect.bottom = pos.y.toInt()
             }
             // Basic validation (min size)
             if (newRect.width() > 20 && newRect.height() > 20) {
@@ -761,6 +780,29 @@ fun CircleToSearchScreen(
         } else {
             currentPathPoints.add(change.position)
         }
+    }
+
+    // Confirm the pending frame: crop it and start the usual upload/search flow
+    // (selectedBitmap drives LaunchedEffect(selectedBitmap) -> upload -> engines).
+    fun confirmCrop() {
+        val bmp = screenshot
+        val rect = selectionRect
+        if (bmp == null || rect == null) return
+        val viewW = if (canvasSizePx.width > 0) canvasSizePx.width else bmp.width
+        val viewH = if (canvasSizePx.height > 0) canvasSizePx.height else bmp.height
+        val t = fitMapping(viewW.toFloat(), viewH.toFloat(), bmp.width.toFloat(), bmp.height.toFloat())
+        cropPending = false
+        selectedBitmap = ImageUtils.cropBitmap(bmp, fitCrop(rect, t, bmp.width, bmp.height))
+        isSearching = true
+    }
+
+    fun cancelCrop() {
+        cropPending = false
+        selectionRect = null
+        selectedBitmap = null
+        isSearching = false
+        currentPathPoints.clear()
+        scope.launch { selectionAnim.snapTo(0f) }
     }
 
     fun endCircleDrag() {
@@ -773,7 +815,8 @@ fun CircleToSearchScreen(
             activeHandle = null
             // Update cropped bitmap after resize. selectionRect is screen-space; map it into
             // image space first (the Fit display may letterbox/scale the bitmap).
-            if (bmp != null && selectionRect != null) {
+            // While the frame is still pending, just keep the new rect: no crop, no search.
+            if (!cropPending && bmp != null && selectionRect != null) {
                 val t = fitMapping(viewW.toFloat(), viewH.toFloat(), bmp.width.toFloat(), bmp.height.toFloat())
                 selectedBitmap = ImageUtils.cropBitmap(bmp, fitCrop(selectionRect!!, t, bmp.width, bmp.height))
             }
@@ -800,14 +843,11 @@ fun CircleToSearchScreen(
             if (rect.width() > 10 && rect.height() > 10) {
                 selectionRect = rect
                 currentPathPoints.clear() // Hide the drawn circle
-                if (bmp != null) {
-                    val t = fitMapping(viewW.toFloat(), viewH.toFloat(), bmp.width.toFloat(), bmp.height.toFloat())
-                    selectedBitmap = ImageUtils.cropBitmap(bmp, fitCrop(rect, t, bmp.width, bmp.height))
-                }
-                scope.launch {
-                    selectionAnim.animateTo(1f, tween(600))
-                    isSearching = true
-                }
+                // Pending: show the adjustable frame; the crop/search waits for "Search".
+                selectedBitmap = null
+                isSearching = false
+                cropPending = true
+                scope.launch { selectionAnim.animateTo(1f, tween(600)) }
             }
         }
     }
@@ -819,6 +859,7 @@ fun CircleToSearchScreen(
         resetSearchSession()
         if (screenshot != null) {
             selectionRect = null
+            cropPending = false
             isSearching = false
             currentPathPoints.clear()
             selectionAnim.snapTo(0f)
@@ -1729,6 +1770,7 @@ fun CircleToSearchScreen(
                                         currentPathPoints.clear()
                                         selectionRect = null
                                         selectedBitmap = null
+                                        cropPending = false
                                     }
                                     LassoOutcome.IMAGE -> endCircleDrag()
                                     LassoOutcome.TOO_SMALL -> currentPathPoints.clear()
@@ -1749,6 +1791,7 @@ fun CircleToSearchScreen(
                                     if (selected && selectionRect != null) {
                                         selectionRect = null
                                         selectedBitmap = null
+                                        cropPending = false
                                     }
                                 },
                             )
@@ -1963,6 +2006,7 @@ fun CircleToSearchScreen(
                 if (bmp != null) {
                     selectionRect = null
                     selectedBitmap = null
+                    cropPending = false
                     isSearching = false
                     currentPathPoints.clear()
                     scope.launch { selectionAnim.snapTo(0f) }
@@ -2097,6 +2141,7 @@ fun CircleToSearchScreen(
                                             }
                                             selectionRect = null
                                             selectedBitmap = null
+                                            cropPending = false
                                             isSearching = false
                                             currentPathPoints.clear()
                                             scope.launch { selectionAnim.snapTo(0f) }
@@ -2323,6 +2368,7 @@ fun CircleToSearchScreen(
                                     val viewW = if (canvasSizePx.width > 0) canvasSizePx.width else screenshot.width
                                     val viewH = if (canvasSizePx.height > 0) canvasSizePx.height else screenshot.height
                                     selectionRect = Rect(0, 0, viewW, viewH)
+                                    cropPending = false
                                     currentPathPoints.clear()
                                     scope.launch { 
                                         selectionAnim.snapTo(0f)
@@ -2413,6 +2459,40 @@ fun CircleToSearchScreen(
                             shadowElevation = 8.dp
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                              if (cropPending) {
+                                // CANCEL / SEARCH: confirm the adjusted frame before searching
+                                androidx.compose.material3.FilledTonalButton(
+                                    onClick = { cancelCrop() },
+                                    modifier = Modifier.height(48.dp),
+                                    shape = CircleShape,
+                                    colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = Color.Transparent,
+                                        contentColor = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    elevation = null,
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        stringResource(R.string.cancel),
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
+                                        )
+                                    )
+                                }
+                                androidx.compose.material3.Button(
+                                    onClick = {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        confirmCrop()
+                                    },
+                                    modifier = Modifier.height(48.dp),
+                                    shape = CircleShape,
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp)
+                                ) {
+                                    Text(stringResource(R.string.search), style = MaterialTheme.typography.labelLarge)
+                                }
+                              } else {
                                 // SHARE
                                 androidx.compose.material3.FilledTonalButton(
                                     onClick = {
@@ -2514,6 +2594,7 @@ fun CircleToSearchScreen(
                                         )
                                     )
                                 }
+                              }
                             }
                         }
                     }
