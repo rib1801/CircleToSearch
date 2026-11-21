@@ -2364,7 +2364,7 @@ fun CircleToSearchScreen(
                                                 bottom = max(bottom, w.bounds.cy + w.bounds.height / 2f)
                                             }
                                             phoneRegexLine.findAll(lineText).forEach { match ->
-                                                val phoneCandidate = match.value.trim()
+                                                val phoneCandidate = dev.davidv.translator.ui.components.normalizeCopiedText(match.value)
                                                 if (phoneCandidate.count { it.isDigit() } >= 10) {
                                                     val startIdx = match.range.first
                                                     val endIdx = match.range.last + 1
@@ -2381,7 +2381,7 @@ fun CircleToSearchScreen(
                                             }
                                         }
                                         sourceWords.forEach { word ->
-                                            val txt = word.text.trim()
+                                            val txt = dev.davidv.translator.ui.components.normalizeCopiedText(word.text)
                                             val wordBounds = android.graphics.RectF(
                                                 word.bounds.cx - word.bounds.width / 2f,
                                                 word.bounds.cy - word.bounds.height / 2f,
@@ -2771,7 +2771,7 @@ fun CircleToSearchScreen(
                                     clipboard.setPrimaryClip(clip)
 
                                     val intent = when(entity) {
-                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(if (!entity.text.startsWith("http")) "http://${entity.text}" else entity.text))
+                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(dev.davidv.translator.ui.components.normalizeCopiedText(entity.text).let { if (!it.startsWith("http")) "http://$it" else it }))
                                         is SmartEntity.Email -> android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.text}"))
                                         is SmartEntity.Phone -> android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.text}"))
                                         is SmartEntity.Upi -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("upi://pay?pa=${entity.text}"))
@@ -2793,7 +2793,7 @@ fun CircleToSearchScreen(
                             .clickable {
                                 try {
                                     val intent = when(entity) {
-                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(if (!entity.text.startsWith("http")) "http://${entity.text}" else entity.text))
+                                        is SmartEntity.Url -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(dev.davidv.translator.ui.components.normalizeCopiedText(entity.text).let { if (!it.startsWith("http")) "http://$it" else it }))
                                         is SmartEntity.Email -> android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${entity.text}"))
                                         is SmartEntity.Phone -> android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:${entity.text}"))
                                         is SmartEntity.Upi -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("upi://pay?pa=${entity.text}"))

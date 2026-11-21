@@ -127,7 +127,7 @@ internal class SelectionActionModeCallback(
     mode: ActionMode,
     item: MenuItem,
   ): Boolean {
-    val text = textProvider()
+    val text = normalizeCopiedText(textProvider())
     when (item.itemId) {
       MENU_COPY -> copyToClipboard(context, text)
       MENU_DDG -> onTextSearch("duckduckgo", text)
