@@ -45,7 +45,7 @@ import dev.davidv.translator.R
 
 /**
  * Render-only layer for a [WordSelectionState]: pills, end handles, loupe and the floating action
- * bar (Copy / Share / Search on DuckDuckGo / Web search). It has NO pointer input; every gesture
+ * bar (Copy / Search on DuckDuckGo, overflow: Google / Yandex / Perplexity). It has NO pointer input; every gesture
  * comes from [selectionGestureResolver] on the overlay root, which writes into the state.
  */
 @Composable
@@ -53,6 +53,7 @@ fun WordSelectionVisual(
   state: WordSelectionState,
   modifier: Modifier = Modifier,
   onSelectionChanged: (Boolean) -> Unit = {},
+  onTextSearch: (engine: String, query: String) -> Unit = { _, _ -> },
 ) {
   val context = LocalContext.current
   val view = LocalView.current
@@ -68,6 +69,7 @@ fun WordSelectionVisual(
   val selection = state.selection
   val selectedText = rememberUpdatedState(selection?.text ?: "")
   val hasSelection = state.hasSelection
+  val searchHandler = rememberUpdatedState(onTextSearch)
 
   LaunchedEffect(hasSelection, state) { onSelectionChanged(hasSelection) }
 
@@ -110,6 +112,7 @@ fun WordSelectionVisual(
               textProvider = { selectedText.value },
               rectProvider = { rectState.value },
               onFinished = { actionMode = null },
+              onTextSearch = { engine, query -> searchHandler.value(engine, query) },
             ),
             ActionMode.TYPE_FLOATING,
           )

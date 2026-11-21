@@ -17,12 +17,9 @@
 
 package dev.davidv.translator.ui.components
 
-import android.app.SearchManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.view.ActionMode
 import android.view.Menu
@@ -59,7 +56,6 @@ import uniffi.bindings.selectionResolve
 import uniffi.bindings.selectionWordAt
 import uniffi.bindings.selectionWordAxis
 import uniffi.translator_core.PositionedWord
-import java.net.URLEncoder
 import kotlin.math.max
 import kotlin.math.min
 
@@ -91,29 +87,34 @@ private fun copyToClipboard(
 }
 
 private const val MENU_COPY = 1
-private const val MENU_SHARE = 2
-private const val MENU_SEARCH = 3
-private const val MENU_SEARCH_DDG = 4
+private const val MENU_DDG = 2
+private const val MENU_GOOGLE = 3
+private const val MENU_YANDEX = 4
+private const val MENU_PERPLEXITY = 5
 
 /**
- * A floating text-selection action bar (Copy / Share / Search on DuckDuckGo / Web search) over the image, mirroring the
- * system text toolbar. `textProvider`/`rectProvider` are read live so the bar follows the
- * selection. Returns a callback; the caller drives `startActionMode`.
+ * A floating text-selection action bar over the image, mirroring the system text toolbar.
+ * Visible: Copy and Search on DuckDuckGo. Overflow (three dots): Google, Yandex, Perplexity.
+ * The module never opens a browser: web searches are handed to [onTextSearch] as
+ * (engine = "duckduckgo" | "google" | "yandex" | "perplexity", raw query) and the host decides.
+ * `textProvider`/`rectProvider` are read live so the bar follows the selection.
  */
 internal class SelectionActionModeCallback(
   private val context: Context,
   private val textProvider: () -> String,
   private val rectProvider: () -> android.graphics.Rect,
   private val onFinished: () -> Unit,
+  private val onTextSearch: (engine: String, query: String) -> Unit = { _, _ -> },
 ) : ActionMode.Callback2() {
   override fun onCreateActionMode(
     mode: ActionMode,
     menu: Menu,
   ): Boolean {
-    menu.add(0, MENU_COPY, 0, android.R.string.copy)
-    menu.add(0, MENU_SHARE, 1, "Share")
-    menu.add(0, MENU_SEARCH_DDG, 2, "Search on DuckDuckGo")
-    menu.add(0, MENU_SEARCH, 3, "Web search")
+    menu.add(0, MENU_COPY, 0, android.R.string.copy).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+    menu.add(0, MENU_DDG, 1, "Search on DuckDuckGo").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+    menu.add(0, MENU_GOOGLE, 2, "Search on Google").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+    menu.add(0, MENU_YANDEX, 3, "Search on Yandex").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
+    menu.add(0, MENU_PERPLEXITY, 4, "Search on Perplexity").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
     return true
   }
 
@@ -129,32 +130,10 @@ internal class SelectionActionModeCallback(
     val text = textProvider()
     when (item.itemId) {
       MENU_COPY -> copyToClipboard(context, text)
-      MENU_SHARE -> {
-        val intent =
-          Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-          }
-        context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-      }
-      MENU_SEARCH_DDG -> {
-        runCatching {
-          val query = URLEncoder.encode(text, "UTF-8")
-          val intent =
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://duckduckgo.com/?q=$query")).apply {
-              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-          context.startActivity(intent)
-        }
-      }
-      MENU_SEARCH -> {
-        val intent =
-          Intent(Intent.ACTION_WEB_SEARCH).apply {
-            putExtra(SearchManager.QUERY, text)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          }
-        runCatching { context.startActivity(intent) }
-      }
+      MENU_DDG -> onTextSearch("duckduckgo", text)
+      MENU_GOOGLE -> onTextSearch("google", text)
+      MENU_YANDEX -> onTextSearch("yandex", text)
+      MENU_PERPLEXITY -> onTextSearch("perplexity", text)
       else -> return false
     }
     mode.finish()

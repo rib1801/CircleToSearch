@@ -171,6 +171,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.zIndex
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.webkit.WebSettingsCompat
@@ -579,6 +581,11 @@ fun CircleToSearchScreen(
     // WebView Cache
     val webViews = remember { mutableMapOf<SearchEngine, WebView>() }
 
+    // Text-search mode: the sheet shows ONE WebView on this URL (no image upload, no engine
+    // tabs). The nonce forces a fresh WebView even when the same URL is searched twice.
+    var textSearchUrl by remember { mutableStateOf<String?>(null) }
+    var textSearchNonce by remember { mutableStateOf(0) }
+
     // Clears the pull-to-refresh spinner once the refreshed tab finishes loading.
     fun clearRefreshIfDone(view: WebView?) {
         val re = refreshingEngine
@@ -672,6 +679,7 @@ fun CircleToSearchScreen(
     // reused OverlayActivity (singleInstance + onNewIntent) never resumes a stale search.
     fun resetSearchSession() {
         selectedBitmap = null
+        textSearchUrl = null
         cropPending = false
         hostedImageUrl = null
         refreshingEngine = null
@@ -1259,8 +1267,8 @@ fun CircleToSearchScreen(
                 ) {
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tabs - Polished UI
-                ScrollableTabRow(
+                // Tabs - Polished UI (image search only; text mode shows a single WebView)
+                if (textSearchUrl == null) ScrollableTabRow(
                     selectedTabIndex = searchEngines.indexOf(selectedEngine),
                     edgePadding = 16.dp,
                     containerColor = Color.Transparent,
@@ -1314,6 +1322,7 @@ fun CircleToSearchScreen(
                     hostedImageUrl = null
                     refreshingEngine = null
                     searchUrl = null
+                    if (selectedBitmap != null) textSearchUrl = null
                     preloadedUrls.clear()
                     initializedEngines.clear()
                     val stale = webViews.values.toList()
@@ -1331,6 +1340,18 @@ fun CircleToSearchScreen(
                             android.util.Log.w("CircleToSearch", "WebView teardown failed", e)
                         }
                     }
+                }
+
+                // Text mode: open the sheet; once it has been shown and is then closed, drop the
+                // text session (WebView destroyed, state back to normal).
+                LaunchedEffect(textSearchUrl, textSearchNonce) {
+                    if (textSearchUrl == null) return@LaunchedEffect
+                    scope.launch { scaffoldState.bottomSheetState.expand() }
+                    snapshotFlow { scaffoldState.bottomSheetState.currentValue }
+                        .first { it != androidx.compose.material3.SheetValue.Hidden }
+                    snapshotFlow { scaffoldState.bottomSheetState.currentValue }
+                        .first { it == androidx.compose.material3.SheetValue.Hidden }
+                    resetSearchSession()
                 }
 
                 LaunchedEffect(selectedBitmap, hostedImageUrl) {
@@ -1472,6 +1493,22 @@ fun CircleToSearchScreen(
                                 it.destroy() 
                             }
                             webViews.clear()
+                        }
+                    }
+
+                    // Text mode: a single WebView (same hardened createWebView), no upload/tabs.
+                    val textUrl = textSearchUrl
+                    if (textUrl != null) {
+                        androidx.compose.runtime.key(textSearchNonce) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    createWebView(ctx, selectedEngine).also {
+                                        webViews[selectedEngine] = it
+                                        it.loadUrl(textUrl)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
                     }
 
@@ -1784,6 +1821,22 @@ fun CircleToSearchScreen(
                             WordSelectionVisual(
                                 state = ws,
                                 modifier = Modifier.fillMaxSize(),
+                                onTextSearch = { engine, query ->
+                                    val q = java.net.URLEncoder.encode(query, "UTF-8")
+                                    val url = when (engine) {
+                                        "duckduckgo" -> "https://duckduckgo.com/?q=$q"
+                                        "google" -> "https://www.google.com/search?q=$q"
+                                        "yandex" -> "https://yandex.com/search/?text=$q"
+                                        "perplexity" -> "https://www.perplexity.ai/search?q=$q"
+                                        else -> null
+                                    }
+                                    if (url != null) {
+                                        resetSearchSession()
+                                        searchUrl = url
+                                        textSearchUrl = url
+                                        textSearchNonce++
+                                    }
+                                },
                                 onSelectionChanged = { selected ->
                                     wordSelected = selected
                                     // Mutually exclusive with the drawn circle: selecting
