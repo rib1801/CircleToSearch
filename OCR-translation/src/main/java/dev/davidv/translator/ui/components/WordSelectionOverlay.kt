@@ -100,7 +100,7 @@ private const val MENU_SEARCH_DDG = 4
  * system text toolbar. `textProvider`/`rectProvider` are read live so the bar follows the
  * selection. Returns a callback; the caller drives `startActionMode`.
  */
-private class SelectionActionModeCallback(
+internal class SelectionActionModeCallback(
   private val context: Context,
   private val textProvider: () -> String,
   private val rectProvider: () -> android.graphics.Rect,

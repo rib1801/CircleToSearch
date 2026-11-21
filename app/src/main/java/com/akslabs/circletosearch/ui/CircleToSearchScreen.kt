@@ -193,7 +193,10 @@ import dev.davidv.translator.TranslatorApplication
 import dev.davidv.translator.ui.components.DetectedRegions
 import dev.davidv.translator.ui.components.ImageWordSelection
 import dev.davidv.translator.ui.components.ScanAnimationOverlay
-import dev.davidv.translator.ui.components.WordSelectionOverlay
+import dev.davidv.translator.ui.components.LassoOutcome
+import dev.davidv.translator.ui.components.WordSelectionState
+import dev.davidv.translator.ui.components.WordSelectionVisual
+import dev.davidv.translator.ui.components.selectionGestureResolver
 import android.net.Uri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -701,42 +704,41 @@ fun CircleToSearchScreen(
     // A word selection in the instant-OCR overlay hides the bottom bar; tapping outside the
     // text clears the selection and the bar comes back.
     var wordSelected by remember { mutableStateOf(false) }
-    // Bumped to force the word overlay to drop its selection — text selection and a drawn
-    // circle are mutually exclusive, so completing a circle clears any active selection.
-    var wordSelectionClearSignal by remember { mutableStateOf(0) }
+    // Single selection state: written only by the root gesture resolver, rendered by
+    // WordSelectionVisual. One instance per recognized screenshot.
+    val wordState = remember(instantWords) {
+        instantWords?.let { WordSelectionState(it.sourceWords, it.imageWidth, it.imageHeight) }
+    }
 
     // Circle-draw gesture handlers, shared by the drag-detector wrapper above the drawing
     // layer (see "Circle-draw gestures" below). Plain drags draw; handle grabs and taps are
     // claimed by the word overlay (child, seen first) so text selection keeps priority.
-    fun beginCircleDrag(offset: Offset) {
-        val rect = selectionRect
-        if (rect != null && selectionAnim.value == 1f) {
-            val handleSize = 64f // px for hit testing
-            val tl = Offset(rect.left.toFloat(), rect.top.toFloat())
-            val tr = Offset(rect.right.toFloat(), rect.top.toFloat())
-            val bl = Offset(rect.left.toFloat(), rect.bottom.toFloat())
-            val br = Offset(rect.right.toFloat(), rect.bottom.toFloat())
-
-            when {
-                (offset - tl).getDistance() < handleSize -> { isResizing = true; activeHandle = "tl" }
-                (offset - tr).getDistance() < handleSize -> { isResizing = true; activeHandle = "tr" }
-                (offset - bl).getDistance() < handleSize -> { isResizing = true; activeHandle = "bl" }
-                (offset - br).getDistance() < handleSize -> { isResizing = true; activeHandle = "br" }
-                else -> { isResizing = false; activeHandle = null }
-            }
-
-            if (isResizing) return
+    // Crop-frame corner under the point ("tl"/"tr"/"bl"/"br"), or null. Handles win over words.
+    fun cropHandleAt(offset: Offset): String? {
+        val rect = selectionRect ?: return null
+        if (selectionAnim.value != 1f) return null
+        val handleSize = 64f // px for hit testing
+        return when {
+            (offset - Offset(rect.left.toFloat(), rect.top.toFloat())).getDistance() < handleSize -> "tl"
+            (offset - Offset(rect.right.toFloat(), rect.top.toFloat())).getDistance() < handleSize -> "tr"
+            (offset - Offset(rect.left.toFloat(), rect.bottom.toFloat())).getDistance() < handleSize -> "bl"
+            (offset - Offset(rect.right.toFloat(), rect.bottom.toFloat())).getDistance() < handleSize -> "br"
+            else -> null
         }
+    }
+
+    fun beginCircleDrag(offset: Offset) {
+        val handle = cropHandleAt(offset)
+        isResizing = handle != null
+        activeHandle = handle
+        if (isResizing) return
 
         // Clear previous state if starting new draw
         currentPathPoints.clear()
         currentPathPoints.add(offset)
         selectionRect = null
         scope.launch { selectionAnim.snapTo(0f) }
-        // Text selection and drawing are exclusive from the first moment of the gesture:
-        // drop any active selection as soon as the user starts drawing, not when the
-        // circle completes.
-        if (wordSelected) wordSelectionClearSignal++
+        // The resolver already cleared any text selection when the lasso started.
     }
 
     fun moveCircleDrag(change: PointerInputChange) {
@@ -1698,30 +1700,39 @@ fun CircleToSearchScreen(
 
             }
 
-            // Circle-draw gestures + instant OCR overlays. The drag detector is the PARENT of
-            // the word overlay, not a lower sibling: an ancestor is always in the hit path, the
-            // child sees events first (taps and handle-drags stay with text selection, since it
-            // consumes them), and plain drags fall through to circle drawing — the same
-            // container/overlay split the translator module uses for pan vs. word selection.
+            // Circle-draw + word selection: ONE pointer handler on the root decides the intent
+            // (tap word / sweep words / lasso -> text or image crop). The word layer below is
+            // render-only and has no pointer input of its own.
             if (!isTranslatorMode) {
+                val activeWordState = if (screenshot != null && !isEntityExtractMode) wordState else null
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { beginCircleDrag(it) },
-                                onDrag = { change, _ -> moveCircleDrag(change) },
-                                onDragEnd = { endCircleDrag() },
-                            )
-                        }
+                        .selectionGestureResolver(
+                            state = activeWordState,
+                            isCropHandleAt = { cropHandleAt(it) != null },
+                            isCropResizing = { isResizing },
+                            onLassoStart = { beginCircleDrag(it) },
+                            onLassoMove = { moveCircleDrag(it) },
+                            onLassoEnd = { _, outcome ->
+                                when (outcome) {
+                                    // Words inside the lasso became a text selection: no crop.
+                                    LassoOutcome.TEXT -> {
+                                        currentPathPoints.clear()
+                                        selectionRect = null
+                                        selectedBitmap = null
+                                    }
+                                    LassoOutcome.IMAGE -> endCircleDrag()
+                                    LassoOutcome.TOO_SMALL -> currentPathPoints.clear()
+                                }
+                            },
+                        )
                 ) {
                     if (screenshot != null && !isEntityExtractMode) {
-                        val words = instantWords
-                        if (words != null) {
-                            WordSelectionOverlay(
-                                words = words.sourceWords,
-                                imageWidth = words.imageWidth,
-                                imageHeight = words.imageHeight,
+                        val ws = wordState
+                        if (ws != null) {
+                            WordSelectionVisual(
+                                state = ws,
                                 modifier = Modifier.fillMaxSize(),
                                 onSelectionChanged = { selected ->
                                     wordSelected = selected
@@ -1732,7 +1743,6 @@ fun CircleToSearchScreen(
                                         selectedBitmap = null
                                     }
                                 },
-                                clearSelectionSignal = wordSelectionClearSignal,
                             )
                         } else if (!instantOcrDone) {
                             instantRegions?.let { regions ->
