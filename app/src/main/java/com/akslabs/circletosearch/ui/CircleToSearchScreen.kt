@@ -2852,6 +2852,34 @@ fun CircleToSearchScreen(
                         )
                     }
 
+                    // WhatsApp action (extra chip; Phone's own dial behaviour is unchanged)
+                    if (entity is SmartEntity.Phone) {
+                        val waNumber = dev.davidv.translator.brWhatsAppNumber(entity.text)
+                        if (waNumber != null) {
+                            Surface(
+                                modifier = Modifier
+                                    .offset(x = chipX.dp + 28.dp, y = chipY.dp + 18.dp)
+                                    .clickable {
+                                        dev.davidv.translator.openWhatsAppChat(context, waNumber)
+                                        isEntityExtractMode = false
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF25D366),
+                                tonalElevation = 4.dp,
+                                shadowElevation = 4.dp
+                            ) {
+                                Text(
+                                    text = "WhatsApp",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

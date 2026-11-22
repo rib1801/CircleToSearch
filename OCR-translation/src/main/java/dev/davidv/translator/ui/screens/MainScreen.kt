@@ -35,7 +35,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Text
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import dev.davidv.translator.brWhatsAppNumber
+import dev.davidv.translator.openWhatsAppChat
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -222,28 +226,32 @@ fun MainScreen(
     modifier = Modifier.semantics { contentDescription = mainScreenDescription },
     containerColor = MaterialTheme.colorScheme.surfaceContainer,
     floatingActionButton = {
-      when (launchMode) {
-        LaunchMode.Normal -> {
+      val waNumber = if (launchMode != LaunchMode.Normal) brWhatsAppNumber(input) else null
+      Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        if (waNumber != null) {
+          ExtendedFloatingActionButton(
+            onClick = { openWhatsAppChat(context, waNumber) },
+            shape = FloatingActionButtonDefaults.smallShape,
+          ) {
+            Text("WhatsApp")
+          }
         }
-
-        LaunchMode.ReadonlyModal -> {
-        }
-
-        is LaunchMode.ReadWriteModal -> {
-          if (output != null) {
-            FloatingActionButton(
-              onClick = {
-                launchMode.reply(output.translated)
-              },
-              shape = FloatingActionButtonDefaults.smallShape,
-              modifier = Modifier.size(30.dp),
-            ) {
-              Icon(
-                painterResource(id = R.drawable.check),
-                contentDescription = stringResource(R.string.a11y_replace_text),
-                modifier = Modifier.size(20.dp),
-              )
-            }
+        if (launchMode is LaunchMode.ReadWriteModal && output != null) {
+          FloatingActionButton(
+            onClick = {
+              launchMode.reply(output.translated)
+            },
+            shape = FloatingActionButtonDefaults.smallShape,
+            modifier = Modifier.size(30.dp),
+          ) {
+            Icon(
+              painterResource(id = R.drawable.check),
+              contentDescription = stringResource(R.string.a11y_replace_text),
+              modifier = Modifier.size(20.dp),
+            )
           }
         }
       }
