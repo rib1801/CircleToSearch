@@ -52,6 +52,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -445,6 +449,9 @@ fun CircleToSearchScreen(
 
     //Slide-in animation
     var isUIVisible by remember { mutableStateOf(false) }
+    // Vertical drag offset (px, <= 0) of the bottom card; reset when a new capture session starts.
+    var panelOffsetPx by remember { mutableStateOf(0f) }
+    var panelHeightPx by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         isUIVisible = true // Déclenche l'animation à l'ouverture
     }
@@ -865,6 +872,7 @@ fun CircleToSearchScreen(
         // Runs for null too: OverlayActivity.onNewIntent nulls the capture first, and a
         // reused activity must drop the previous session even if no new bitmap follows.
         resetSearchSession()
+        panelOffsetPx = 0f
         if (screenshot != null) {
             selectionRect = null
             cropPending = false
@@ -2103,12 +2111,27 @@ fun CircleToSearchScreen(
                 modifier = Modifier.align(Alignment.BottomCenter).zIndex(2000f)
             ) {
                 // ── Outer card container ──────────────────────────────────────────
+                val panelDensity = LocalDensity.current
+                val panelScreenHeightPx = with(panelDensity) {
+                    androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx()
+                }
+                // Keeps >= 120dp free above the card so it never reaches the status bar.
+                val panelMaxUpPx = (panelScreenHeightPx - panelHeightPx - with(panelDensity) { 120.dp.toPx() })
+                    .coerceAtLeast(0f)
                 androidx.compose.material3.Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 16.dp),
+                        .padding(horizontal = 12.dp, vertical = 16.dp)
+                        .onSizeChanged { panelHeightPx = it.height }
+                        .offset { IntOffset(0, panelOffsetPx.coerceIn(-panelMaxUpPx, 0f).toInt()) }
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                panelOffsetPx = (panelOffsetPx + delta).coerceIn(-panelMaxUpPx, 0f)
+                            }
+                        ),
                     shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shadowElevation = 8.dp,
@@ -2120,6 +2143,14 @@ fun CircleToSearchScreen(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // Drag handle: the card can be dragged up to reveal what's behind it
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .size(width = 32.dp, height = 4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        )
                         // ── ROW 1: Search Pill + Instant Actions (Song, Translate) ──
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -2820,6 +2851,7 @@ fun CircleToSearchScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+
                 }
             }
         }
