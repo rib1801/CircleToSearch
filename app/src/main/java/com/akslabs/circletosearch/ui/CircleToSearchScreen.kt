@@ -66,6 +66,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -2789,7 +2790,7 @@ fun CircleToSearchScreen(
                     // Main Chip Icon
                     Box(
                         modifier = Modifier
-                            .offset(x = chipX.dp - 24.dp, y = chipY.dp - 24.dp)
+                            .clampedOffset(chipX.dp - 24.dp, chipY.dp - 24.dp)
                             .size(48.dp)
                             .shadow(6.dp, CircleShape)
                             .background(Color.White, CircleShape)
@@ -2820,7 +2821,7 @@ fun CircleToSearchScreen(
                     // Label Chip
                     Surface(
                         modifier = Modifier
-                            .offset(x = chipX.dp + 28.dp, y = chipY.dp - 12.dp)
+                            .clampedOffset(chipX.dp + 28.dp, chipY.dp - 12.dp)
                             .clickable {
                                 try {
                                     val intent = when(entity) {
@@ -2858,7 +2859,7 @@ fun CircleToSearchScreen(
                         if (waNumber != null) {
                             Surface(
                                 modifier = Modifier
-                                    .offset(x = chipX.dp + 28.dp, y = chipY.dp + 18.dp)
+                                    .clampedOffset(chipX.dp + 28.dp, chipY.dp + 18.dp)
                                     .clickable {
                                         dev.davidv.translator.openWhatsAppChat(context, waNumber)
                                         isEntityExtractMode = false
@@ -2999,3 +3000,20 @@ fun ContainedLoadingIndicatorSample() {
         androidx.compose.material3.ContainedLoadingIndicator()
     }
 }
+
+
+/**
+ * Like Modifier.offset, but measures the element and clamps its final position so it always
+ * stays fully inside the parent's bounds (with [margin]), keeping it visible and tappable.
+ * The layout is placed within the full parent area so hit-testing follows the clamped position.
+ */
+private fun Modifier.clampedOffset(x: androidx.compose.ui.unit.Dp, y: androidx.compose.ui.unit.Dp, margin: androidx.compose.ui.unit.Dp = 8.dp): Modifier =
+    this.layout { measurable, constraints ->
+        val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val w = constraints.maxWidth
+        val h = constraints.maxHeight
+        val m = margin.roundToPx()
+        val px = x.roundToPx().coerceIn(m, maxOf(m, w - p.width - m))
+        val py = y.roundToPx().coerceIn(m, maxOf(m, h - p.height - m))
+        layout(w, h) { p.place(px, py) }
+    }
