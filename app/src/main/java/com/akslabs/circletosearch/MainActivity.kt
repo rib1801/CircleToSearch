@@ -71,10 +71,12 @@ class MainActivity : ComponentActivity() {
     private var pendingSettingsPage by mutableStateOf<String?>(null)
     private var navTick by mutableStateOf(0)
     private var forceOnboarding by mutableStateOf(false)
+    private var updatedThisRun = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        updatedThisRun = markRunAndCheckUpdated(this)
         pendingSettingsPage = intent.getStringExtra(EXTRA_SETTINGS_PAGE)
         forceOnboarding = intent.getBooleanExtra(EXTRA_SHOW_ONBOARDING, false)
         Toast.makeText(this, getString(R.string.toast_getting_started), Toast.LENGTH_LONG).show()
@@ -166,6 +168,13 @@ class MainActivity : ComponentActivity() {
                                             },
                                             wobbleEvent = wobbleTick,
                                             contentPadding = WindowInsets.systemBars.asPaddingValues(),
+                                        )
+                                        AccessibilityDroppedBanner(
+                                            updatedThisRun = updatedThisRun,
+                                            modifier = Modifier
+                                                .align(Alignment.TopCenter)
+                                                .padding(WindowInsets.systemBars.asPaddingValues())
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
                                         )
                                         AnimatedVisibility(
                                             visible = wizardBackdrop,

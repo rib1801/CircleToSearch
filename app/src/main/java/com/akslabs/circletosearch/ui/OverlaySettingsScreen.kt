@@ -48,6 +48,7 @@ import com.akslabs.circletosearch.R
 import com.akslabs.circletosearch.CircleToSearchAccessibilityService
 import com.akslabs.circletosearch.data.*
 import com.akslabs.circletosearch.isAccessibilityServiceEnabled
+import com.akslabs.circletosearch.openAccessibilitySettings
 import com.akslabs.circletosearch.ui.components.DonateBottomSheet
 import com.akslabs.circletosearch.ui.components.UnifiedSearchMethodSelector
 import com.akslabs.circletosearch.utils.UIPreferences
@@ -423,11 +424,14 @@ private fun ZonesSettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
+                        Text(
+                            text = stringResource(R.string.a11y_drop_settings_reason),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }) {
+                    TextButton(onClick = { openAccessibilitySettings(context) }) {
                         Text(stringResource(R.string.overlay_a11y_off_enable))
                     }
                 }

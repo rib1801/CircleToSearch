@@ -440,4 +440,11 @@
     <string name="trigger_hw_notice">Hardware button triggers need the accessibility service enabled.</string>
     <string name="label_translator_title">Offline Translator</string>
     <string name="label_translator_subtitle">Open the translator home screen</string>
+    <string name="a11y_drop_title">O acesso de acessibilidade está desligado</string>
+    <string name="a11y_drop_body_generic">O Android desliga esse acesso quando o app é instalado ou atualizado por fora da Play Store.</string>
+    <string name="a11y_drop_body_updated">O Android desligou o acesso após a atualização do app.</string>
+    <string name="a11y_drop_enable">Ativar</string>
+    <string name="a11y_drop_later">Depois</string>
+    <string name="a11y_drop_done">Pronto</string>
+    <string name="a11y_drop_settings_reason">Não é defeito: o Android desliga esse acesso quando o app é instalado ou atualizado por fora da Play Store.</string>
 </resources>
