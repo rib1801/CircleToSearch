@@ -400,7 +400,7 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
             if (changed) {
                 try { wm.updateViewLayout(existing, params) } catch (_: Exception) {}
                 // Re-attach so the full-width smart-swipe check uses the new width.
-                attachTouchListener(existing, buildSegment(), 0)
+                attachTouchListener(existing, buildSegment(), 0, isStatusBar = true)
             }
             applyStatusBarTint(existing, cfg.previewVisible)
             return
@@ -419,7 +419,7 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
         params.gravity = Gravity.TOP or Gravity.START
         params.x = 0
         params.y = yOffset
-        attachTouchListener(view, buildSegment(), 0)
+        attachTouchListener(view, buildSegment(), 0, isStatusBar = true)
         applyStatusBarTint(view, cfg.previewVisible)
         try {
             wm.addView(view, params)
@@ -651,11 +651,18 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
     }
     
     @SuppressLint("ClickableViewAccessibility")
-    private fun attachTouchListener(view: View, segment: OverlaySegment, segmentIndex: Int) {
+    private fun attachTouchListener(
+        view: View,
+        segment: OverlaySegment,
+        segmentIndex: Int,
+        isStatusBar: Boolean = false,
+    ) {
         // Slow drags and taps on an overlay must still reach the system UI below
         // (notification shade / quick settings on the status bar, the app under a strip).
         var lastScrollForwardAt = 0L
         var scrollForwardedThisGesture = false
+        // Status-bar strip only: the shade was already opened for this gesture.
+        var shadeOpenedThisGesture = false
         val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 val action = segment.gestures[GestureType.DOUBLE_TAP] ?: ActionType.NONE
@@ -672,6 +679,20 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
                 if (e1 == null) return false
                 val dx = e2.rawX - e1.rawX
                 val dy = e2.rawY - e1.rawY
+                if (isStatusBar) {
+                    // Status-bar strip: do NOT mimic the drag with a synthetic gesture
+                    // (dispatchGesture is dropped when another gesture is running, and
+                    // the shade would be flung instead of following the finger).
+                    // Open the shade directly, once, as soon as the finger clearly
+                    // moves down: left half = notifications, right half = quick settings.
+                    if (!shadeOpenedThisGesture && dy > 0 && dy > Math.abs(dx) &&
+                        dy > 2 * android.view.ViewConfiguration.get(this@CircleToSearchAccessibilityService).scaledTouchSlop
+                    ) {
+                        shadeOpenedThisGesture = true
+                        openShadeFromStatusBar(e1.rawX)
+                    }
+                    return true
+                }
                 // Only treat this as a real drag once the finger has clearly moved — tiny
                 // jitter during a tap/double-tap must NOT be forwarded (forwarding briefly
                 // makes the window untouchable and swallows the second tap).
@@ -710,6 +731,16 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
             
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
+                if (isStatusBar) {
+                    // Fast flick that never produced an onScroll past the slop: still open.
+                    if (!shadeOpenedThisGesture && e2.rawY - e1.rawY > 0 &&
+                        (e2.rawY - e1.rawY) > Math.abs(e2.rawX - e1.rawX)
+                    ) {
+                        shadeOpenedThisGesture = true
+                        openShadeFromStatusBar(e1.rawX)
+                    }
+                    return true
+                }
                 // This drag was already forwarded to the system below; don't also fire
                 // a global action (would open the shade a second time).
                 if (scrollForwardedThisGesture) return true
@@ -796,6 +827,7 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
         view.setOnTouchListener { _, event ->
              if (event.action == MotionEvent.ACTION_DOWN) {
                 scrollForwardedThisGesture = false
+                shadeOpenedThisGesture = false
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastTapTime < 400) {
                     tapCount++
@@ -967,6 +999,19 @@ class CircleToSearchAccessibilityService : AccessibilityService() {
     // Temporarily makes the window untouchable, injects the tap, and (via
     // forwardPassthroughGesture) guarantees the window is restored even if the
     // dispatch fails — a missing restore would leave the overlay dead.
+    /** Left half of the screen opens notifications, right half quick settings. */
+    private fun openShadeFromStatusBar(touchX: Float) {
+        val half = resources.displayMetrics.widthPixels / 2
+        performGlobalAction(
+            if (touchX < half) GLOBAL_ACTION_NOTIFICATIONS else GLOBAL_ACTION_QUICK_SETTINGS
+        )
+    }
+
+    /**
+     * Status-bar strip single tap: best-effort synthetic tap (50 ms point stroke).
+     * It is dropped silently if another dispatched gesture is already running; unlike a
+     * drag, a lost tap is harmless (the user just taps again), so it is kept.
+     */
     private fun propagateSingleTap(view: View, x: Float, y: Float) {
         val path = android.graphics.Path().apply { moveTo(x, y) }
         forwardPassthroughGesture(view, path, 50)
